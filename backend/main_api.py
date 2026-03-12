@@ -3,10 +3,10 @@ SEO Agent Backend — Unified FastAPI
 Runs on Railway / Render (single service, port 8000)
 
 Endpoints:
-  Pipeline: /run, /runs, /run/{id}, /run/{id}/resume, /stream/{id}, /logs/{id}
+  Pipeline: /api/run, /runs, /api/run/{id}, /api/run/{id}/resume, /api/stream/{id}, /logs/{id}
   Tools:    /tools, /tools/*
-  Schedule: /schedules GET/POST/DELETE
-  Memory:   /memory GET/POST
+  Schedule: /api/schedules GET/POST/DELETE
+  Memory:   /api/memory GET/POST
   Config:   /config GET/POST
   Monitor:  /tool-calls GET (live tool call log)
 """
@@ -89,7 +89,7 @@ def health():
 #  PIPELINE ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@app.post("/run")
+@app.post("/api/run")
 async def start_run(request: Request, background_tasks: BackgroundTasks):
     body     = await request.json()
     task     = body.get("task", "").strip()
@@ -117,7 +117,7 @@ def list_runs():
     return {"runs": fs.list_all_runs()}
 
 
-@app.get("/run/{run_id}")
+@app.get("/api/run/{run_id}")
 def get_run(run_id: str):
     status = fs.read_status(run_id)
     if not status:
@@ -125,13 +125,13 @@ def get_run(run_id: str):
     return status
 
 
-@app.delete("/run/{run_id}")
+@app.delete("/api/run/{run_id}")
 def delete_run_endpoint(run_id: str):
     fs.delete_run(run_id)
     return {"deleted": True}
 
 
-@app.post("/run/{run_id}/resume")
+@app.post("/api/run/{run_id}/resume")
 async def resume_run(run_id: str, background_tasks: BackgroundTasks):
     status = fs.read_status(run_id)
     if not status:
@@ -152,7 +152,7 @@ async def resume_run(run_id: str, background_tasks: BackgroundTasks):
     return {"resumed": True, "resume_from": resume_from}
 
 
-@app.get("/run/{run_id}/stage/{n}")
+@app.get("/api/run/{run_id}/stage/{n}")
 def get_stage_output(run_id: str, n: int):
     data = fs.read_stage_output(run_id, n)
     if not data:
@@ -166,7 +166,7 @@ def get_logs(run_id: str, tail: int = 200):
 
 
 # ── SSE streaming ─────────────────────────────────────────────────────────────
-@app.get("/stream/{run_id}")
+@app.get("/api/stream/{run_id}")
 async def stream_run(run_id: str):
     async def event_generator():
         import aiofiles
@@ -214,25 +214,25 @@ async def stream_run(run_id: str):
 #  SCHEDULE ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/schedules")
+@app.get("/api/schedules")
 def list_schedules():
     return {"schedules": scheduler.list_schedules()}
 
 
-@app.post("/schedules")
+@app.post("/api/schedules")
 async def create_schedule(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
     result = scheduler.add_schedule(body)
     return result
 
 
-@app.delete("/schedules/{schedule_id}")
+@app.delete("/api/schedules/{schedule_id}")
 def delete_schedule(schedule_id: str):
     scheduler.remove_schedule(schedule_id)
     return {"deleted": True}
 
 
-@app.post("/schedules/{schedule_id}/run-now")
+@app.post("/api/schedules/{schedule_id}/run-now")
 async def run_schedule_now(schedule_id: str, background_tasks: BackgroundTasks):
     sched = scheduler.get_schedule(schedule_id)
     if not sched:
@@ -247,7 +247,7 @@ async def run_schedule_now(schedule_id: str, background_tasks: BackgroundTasks):
 #  MEMORY ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/memory")
+@app.get("/api/memory")
 def get_memory(q: str = ""):
     learnings = fs.read_learnings()
     history   = fs.read_task_history()
@@ -259,7 +259,7 @@ def get_memory(q: str = ""):
     return {"learnings": learnings, "history": history, "total": len(learnings)}
 
 
-@app.post("/memory")
+@app.post("/api/memory")
 async def post_memory(request: Request):
     body = await request.json()
     t, data = body.get("type"), body.get("data", {})
@@ -448,16 +448,3 @@ async def _run_pipeline(run_id: str, task_data: dict, resume: bool = False):
     except Exception as e:
         logger.error(f"Pipeline {run_id} error: {e}")
         pipeline.update_status("failed", error=str(e))
-
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/")
-def root():
-    return {"status": "SEO Agent API running"}
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
