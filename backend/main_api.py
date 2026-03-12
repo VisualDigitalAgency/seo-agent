@@ -448,3 +448,16 @@ async def _run_pipeline(run_id: str, task_data: dict, resume: bool = False):
     except Exception as e:
         logger.error(f"Pipeline {run_id} error: {e}")
         pipeline.update_status("failed", error=str(e))
+
+
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"status": "SEO Agent API running"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
