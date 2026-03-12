@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { CalendarClock, Plus, Trash2, Play, Clock, CheckCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
-import { apiGet, apiPost, apiDelete } from '@/lib/api'
+import { apiGet, apiPost, apiDelete } from '../../lib/api'
 
 const FREQ_OPTIONS = [
   { value: 'hourly',  label: 'Every hour' },
