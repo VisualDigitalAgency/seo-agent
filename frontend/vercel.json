@@ -2,10 +2,6 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
-  "env": {
-    "BACKEND_URL": "@backend-url",
-    "NEXT_PUBLIC_BACKEND_URL": "@backend-url"
-  },
   "headers": [
     {
       "source": "/api/stream/(.*)",
