@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server'
 const B = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function GET() {
-  const res = await fetch(`${B}/schedules`, { cache: 'no-store' })
+  const res = await fetch(`${B}/api/schedules`, { cache: 'no-store' })
   return NextResponse.json(await res.json())
 }
 export async function POST(request) {
   const body = await request.json()
-  const res  = await fetch(`${B}/schedules`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+  const res  = await fetch(`${B}/api/schedules`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
   return NextResponse.json(await res.json(), { status: res.status })
 }

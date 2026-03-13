@@ -1,49 +1,44 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { Wrench, Activity, CheckCircle, XCircle, Clock, Play, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
-import { apiGet, apiPost, backendUrl } from '@/lib/api'
+import { Wrench, Activity, RefreshCw, Play, ChevronDown, ChevronUp } from 'lucide-react'
+
+const syne = { fontFamily: 'Syne, sans-serif' }
 
 const TOOL_GROUPS = [
-  { label: 'SERP', color: 'text-accent', tools: ['search_serp','search_web','search_news','get_related_questions'] },
-  { label: 'Keywords', color: 'text-accent4', tools: ['get_keyword_volume','get_keyword_difficulty','get_keyword_suggestions','get_competitor_keywords'] },
-  { label: 'GSC', color: 'text-accent3', tools: ['gsc_get_rankings','gsc_get_top_queries','gsc_detect_ranking_drops'] },
-  { label: 'GA4', color: 'text-purple-400', tools: ['ga4_get_page_traffic','ga4_get_top_pages','ga4_detect_traffic_drops'] },
-  { label: 'Filesystem', color: 'text-orange-400', tools: ['write_stage_output','write_memory','append_log'] },
+  { label: 'SERP',       color: '#0041FF', tools: ['search_serp','search_web','search_news','get_related_questions'] },
+  { label: 'Keywords',   color: '#D97706', tools: ['get_keyword_volume','get_keyword_difficulty','get_keyword_suggestions','get_competitor_keywords'] },
+  { label: 'GSC',        color: '#059669', tools: ['gsc_get_rankings','gsc_get_top_queries','gsc_detect_ranking_drops'] },
+  { label: 'GA4',        color: '#7C3AED', tools: ['ga4_get_page_traffic','ga4_get_top_pages','ga4_detect_traffic_drops'] },
+  { label: 'Filesystem', color: '#DC2626', tools: ['write_stage_output','write_memory','append_log'] },
 ]
 
-const STATUS_COLOR = { ok: 'text-accent3', error: 'text-accent5', pending: 'text-muted' }
-const STATUS_DOT   = { ok: 'bg-accent3', error: 'bg-accent5', pending: 'bg-dim animate-pulse' }
-
 function ToolCallRow({ call, expanded, onToggle }) {
+  const sc = call.status === 'ok' ? '#059669' : '#DC2626'
+  const sb = call.status === 'ok' ? '#ECFDF5' : '#FEF2F2'
   return (
-    <div className="border-b border-border/50 last:border-0">
-      <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface2/50 transition-colors cursor-pointer group"
-           onClick={onToggle}>
-        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[call.status]}`} />
-        <span className={`text-xs font-mono ${STATUS_COLOR[call.status]}`}>{call.tool}</span>
-        <span className="text-xs text-muted flex-1 truncate hidden sm:block">
+    <div style={{ borderBottom: '1px solid #E5E5E0' }}>
+      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer', transition: 'background 0.1s' }}
+        onMouseEnter={e => e.currentTarget.style.background = '#FAFAF8'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: sc, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', color: '#0A0A0A', fontWeight: 500, minWidth: 180 }}>{call.tool}</span>
+        <span style={{ fontSize: 11, color: '#8A8A82', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {Object.entries(call.args || {}).slice(0,2).map(([k,v]) => `${k}: ${String(v).slice(0,30)}`).join(' · ')}
         </span>
-        <span className="text-xs text-muted ml-auto">{call.duration_ms}ms</span>
-        <span className="text-xs text-dim">{new Date(call.timestamp).toLocaleTimeString()}</span>
-        {expanded ? <ChevronUp size={10} className="text-dim" /> : <ChevronDown size={10} className="text-dim" />}
+        <span style={{ fontSize: 11, color: '#8A8A82', marginLeft: 'auto', minWidth: 50, textAlign: 'right' }}>{call.duration_ms}ms</span>
+        <span style={{ fontSize: 10, color: '#C8C8C0', minWidth: 60, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{new Date(call.timestamp).toLocaleTimeString()}</span>
+        {expanded ? <ChevronUp size={11} style={{ color: '#C8C8C0' }} /> : <ChevronDown size={11} style={{ color: '#C8C8C0' }} />}
       </div>
       {expanded && (
-        <div className="px-4 pb-3 grid grid-cols-2 gap-3">
-          <div>
-            <div className="text-xs text-muted mb-1 uppercase tracking-widest">Args</div>
-            <pre className="text-xs text-white bg-surface2 border border-border rounded p-2 overflow-auto max-h-32">
-              {JSON.stringify(call.args, null, 2)}
-            </pre>
-          </div>
-          <div>
-            <div className="text-xs text-muted mb-1 uppercase tracking-widest">
-              {call.error ? 'Error' : 'Result'}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, padding: '0 16px 14px' }}>
+          {[{ label: 'Args', content: JSON.stringify(call.args, null, 2), color: '#0A0A0A' },
+            { label: call.error ? 'Error' : 'Result', content: call.error || JSON.stringify(call.result, null, 2)?.slice(0, 500), color: call.error ? '#DC2626' : '#0A0A0A' }
+          ].map(({ label, content, color }) => (
+            <div key={label}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: '#8A8A82', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
+              <pre style={{ fontSize: 11, background: '#F3F3EF', border: '1px solid #E5E5E0', borderRadius: 6, padding: '8px 10px', overflow: 'auto', maxHeight: 120, margin: 0, fontFamily: 'JetBrains Mono, monospace', color }}>{content}</pre>
             </div>
-            <pre className={`text-xs bg-surface2 border rounded p-2 overflow-auto max-h-32 ${call.error ? 'text-accent5 border-accent5/30' : 'text-white border-border'}`}>
-              {call.error || JSON.stringify(call.result, null, 2)?.slice(0, 500)}
-            </pre>
-          </div>
+          ))}
         </div>
       )}
     </div>
@@ -62,26 +57,27 @@ function ToolTester({ tools }) {
     setRunning(true); setError(null); setResult(null)
     try {
       const args = JSON.parse(argsText)
-      const data = await apiPost(`/tools/${selected}`, args)
+      const res  = await fetch(`/api/tools-proxy?tool=${selected}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args)
+      })
+      const data = await res.json()
       setResult(data)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setRunning(false)
-    }
+    } catch (err) { setError(err.message) }
+    finally { setRunning(false) }
   }
 
+  const inputStyle = { width: '100%', padding: '9px 12px', background: 'white', border: '1px solid #E5E5E0', borderRadius: 7, fontSize: 12, color: '#0A0A0A', fontFamily: 'Plus Jakarta Sans, sans-serif', outline: 'none' }
+
   return (
-    <div className="bg-surface border border-border rounded overflow-hidden">
-      <div className="px-4 py-3 border-b border-border bg-surface2 flex items-center gap-2">
-        <Wrench size={12} className="text-accent" />
-        <span className="text-xs font-bold text-white tracking-wide">TOOL TESTER</span>
+    <div className="card overflow-hidden">
+      <div style={{ padding: '13px 16px', borderBottom: '1px solid #E5E5E0', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Wrench size={12} style={{ color: '#0041FF' }} />
+        <span style={{ ...syne, fontSize: 11, fontWeight: 700, color: '#0A0A0A', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Tool Tester</span>
       </div>
-      <div className="p-4 space-y-3">
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
-          <label className="block text-xs text-muted mb-1.5">Select Tool</label>
-          <select value={selected} onChange={e => setSelected(e.target.value)}
-            className="w-full bg-surface2 border border-border rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-accent">
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8A8A82', marginBottom: 6 }}>Select Tool</div>
+          <select value={selected} onChange={e => setSelected(e.target.value)} style={{ ...inputStyle }}>
             <option value="">— pick a tool —</option>
             {TOOL_GROUPS.map(g => (
               <optgroup key={g.label} label={g.label}>
@@ -91,23 +87,21 @@ function ToolTester({ tools }) {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-muted mb-1.5">Arguments (JSON)</label>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8A8A82', marginBottom: 6 }}>Arguments (JSON)</div>
           <textarea value={argsText} onChange={e => setArgsText(e.target.value)} rows={4}
-            className="w-full bg-surface2 border border-border rounded px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-accent resize-none" />
+            style={{ ...inputStyle, resize: 'none', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }} />
         </div>
-        <button onClick={runTool} disabled={!selected || running}
-          className="w-full flex items-center justify-center gap-2 py-2 bg-accent/10 text-accent border border-accent/20 text-xs font-bold rounded hover:bg-accent/20 transition-colors disabled:opacity-50">
-          {running ? <RefreshCw size={11} className="animate-spin" /> : <Play size={11} />}
-          {running ? 'RUNNING...' : 'RUN TOOL'}
+        <button onClick={runTool} disabled={!selected || running} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          padding: '9px 0', border: '1px solid #0041FF', borderRadius: 7,
+          background: '#EEF1FF', color: '#0041FF', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          opacity: !selected || running ? 0.5 : 1,
+        }}>
+          {running ? <RefreshCw size={11} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Play size={11} />}
+          {running ? 'Running…' : 'Run Tool'}
         </button>
-        {error && (
-          <div className="text-xs text-accent5 bg-accent5/10 border border-accent5/30 rounded px-3 py-2">{error}</div>
-        )}
-        {result && (
-          <pre className="text-xs text-white bg-surface2 border border-border rounded p-3 overflow-auto max-h-48 font-mono">
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        )}
+        {error && <div style={{ fontSize: 11, color: '#DC2626', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
+        {result && <pre style={{ fontSize: 11, background: '#F3F3EF', border: '1px solid #E5E5E0', borderRadius: 6, padding: '10px 12px', overflow: 'auto', maxHeight: 180, fontFamily: 'JetBrains Mono, monospace', color: '#0A0A0A', margin: 0 }}>{JSON.stringify(result, null, 2)}</pre>}
       </div>
     </div>
   )
@@ -123,125 +117,121 @@ export default function ToolsPage() {
 
   const fetchData = async () => {
     try {
-      const [callsData, toolsData] = await Promise.all([
-        apiGet('/tool-calls', { limit: 100 }),
-        apiGet('/tools'),
+      const [c, t] = await Promise.all([
+        fetch('/api/tool-calls?limit=100', { cache: 'no-store' }).then(r => r.json()),
+        fetch('/api/tools-proxy', { cache: 'no-store' }).then(r => r.json()),
       ])
-      setCalls((callsData.calls || []).reverse())
-      setTools(toolsData.tools || [])
-    } catch { }
+      setCalls((c.calls || []).reverse())
+      setTools(t.tools || [])
+    } catch {}
   }
 
   useEffect(() => {
     fetchData()
-    if (live) {
-      intervalRef.current = setInterval(fetchData, 2000)
-    }
+    if (live) intervalRef.current = setInterval(fetchData, 2000)
     return () => clearInterval(intervalRef.current)
   }, [live])
 
   const stats = {
-    total:   calls.length,
-    ok:      calls.filter(c => c.status === 'ok').length,
-    errors:  calls.filter(c => c.status === 'error').length,
-    avg_ms:  calls.length ? Math.round(calls.reduce((a,c) => a + (c.duration_ms||0), 0) / calls.length) : 0,
+    total: calls.length,
+    ok: calls.filter(c => c.status === 'ok').length,
+    errors: calls.filter(c => c.status === 'error').length,
+    avg: calls.length ? Math.round(calls.reduce((a, c) => a + (c.duration_ms || 0), 0) / calls.length) : 0,
   }
 
   const filtered = filter === 'all' ? calls : calls.filter(c => c.status === filter || c.tool.includes(filter))
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-start justify-between mb-8">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
         <div>
-          <div className="flex items-center gap-2 text-xs text-muted uppercase tracking-widest mb-2">
-            <Wrench size={10} className="text-accent" /> Tool Server
-          </div>
-          <h1 className="font-sans text-3xl font-bold text-white tracking-tight">Tool Monitor</h1>
-          <p className="text-muted text-xs mt-1">Live tool call feed · Test tools · Monitor errors</p>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8A8A82', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Tool Server</div>
+          <h1 style={{ ...syne, fontSize: 36, fontWeight: 700, color: '#0A0A0A', letterSpacing: '-0.5px', marginBottom: 4 }}>Tool Monitor</h1>
+          <p style={{ fontSize: 13, color: '#8A8A82' }}>Live tool call feed · Test tools · Monitor errors</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setLive(l => !l)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs border rounded transition-colors
-              ${live ? 'text-accent3 border-accent3/30 bg-accent3/10' : 'text-muted border-border'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-accent3 animate-pulse' : 'bg-dim'}`} />
-            {live ? 'LIVE' : 'Paused'}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setLive(l => !l)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px',
+            border: '1px solid', borderColor: live ? '#A7F3D0' : '#E5E5E0',
+            background: live ? '#ECFDF5' : 'white', borderRadius: 8,
+            color: live ? '#059669' : '#8A8A82', fontSize: 12, fontWeight: live ? 600 : 400, cursor: 'pointer',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: live ? '#059669' : '#C8C8C0' }} className={live ? 'animate-pulse' : ''} />
+            {live ? 'Live' : 'Paused'}
           </button>
-          <button onClick={fetchData} className="px-3 py-2 text-xs text-muted border border-border rounded hover:text-white transition-colors">
-            <RefreshCw size={11} />
+          <button onClick={fetchData} style={{ padding: '9px 13px', border: '1px solid #E5E5E0', borderRadius: 8, background: 'white', cursor: 'pointer' }}>
+            <RefreshCw size={12} style={{ color: '#8A8A82' }} />
           </button>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid-stats" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Total Calls',  value: stats.total,   color: 'text-accent' },
-          { label: 'Successful',   value: stats.ok,      color: 'text-accent3' },
-          { label: 'Errors',       value: stats.errors,  color: 'text-accent5' },
-          { label: 'Avg Duration', value: `${stats.avg_ms}ms`, color: 'text-accent4' },
+          { label: 'Total Calls', value: stats.total, color: '#0041FF' },
+          { label: 'Successful',  value: stats.ok,    color: '#059669' },
+          { label: 'Errors',      value: stats.errors, color: '#DC2626' },
+          { label: 'Avg Duration', value: `${stats.avg}ms`, color: '#D97706' },
         ].map(s => (
-          <div key={s.label} className="bg-surface border border-border rounded p-4">
-            <div className="text-xs text-muted mb-1">{s.label}</div>
-            <div className={`text-2xl font-sans font-bold ${s.color}`}>{s.value}</div>
+          <div key={s.label} className="card" style={{ padding: '16px 20px' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#8A8A82', marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{s.label}</div>
+            <div style={{ ...syne, fontSize: 32, fontWeight: 700, color: s.color }}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid-main-side">
         {/* Live feed */}
-        <div className="col-span-2">
-          <div className="bg-surface border border-border rounded overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface2">
-              <div className="flex items-center gap-2">
-                <Activity size={12} className="text-accent" />
-                <span className="text-xs font-bold text-white tracking-wide">LIVE TOOL CALLS</span>
-                {live && <span className="text-xs text-accent3 animate-pulse">● LIVE</span>}
-              </div>
-              <div className="flex gap-1">
-                {['all','ok','error'].map(f => (
-                  <button key={f} onClick={() => setFilter(f)}
-                    className={`px-2 py-1 text-xs rounded transition-colors capitalize
-                      ${filter === f ? 'text-accent bg-accent/10 border border-accent/20' : 'text-muted hover:text-white border border-transparent'}`}>
-                    {f}
-                  </button>
-                ))}
-              </div>
+        <div className="card overflow-hidden">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', borderBottom: '1px solid #E5E5E0', background: '#FAFAF8' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Activity size={12} style={{ color: '#0041FF' }} />
+              <span style={{ ...syne, fontSize: 11, fontWeight: 700, color: '#0A0A0A', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Live Tool Calls</span>
+              {live && <span style={{ fontSize: 11, color: '#059669' }} className="animate-pulse">● LIVE</span>}
             </div>
-            <div className="max-h-[600px] overflow-auto">
-              {filtered.length === 0 ? (
-                <div className="p-8 text-center text-xs text-muted">No tool calls yet. Run a pipeline to see activity.</div>
-              ) : (
-                filtered.map(call => (
-                  <ToolCallRow key={call.id} call={call}
-                    expanded={expanded === call.id}
-                    onToggle={() => setExpanded(expanded === call.id ? null : call.id)} />
-                ))
-              )}
+            <div style={{ display: 'flex', gap: 6 }}>
+              {['all', 'ok', 'error'].map(f => (
+                <button key={f} onClick={() => setFilter(f)} style={{
+                  padding: '4px 10px', borderRadius: 20, border: '1px solid',
+                  borderColor: filter === f ? '#0041FF' : '#E5E5E0',
+                  background: filter === f ? '#EEF1FF' : 'white',
+                  color: filter === f ? '#0041FF' : '#8A8A82',
+                  fontSize: 11, cursor: 'pointer', textTransform: 'capitalize',
+                }}>{f}</button>
+              ))}
             </div>
+          </div>
+          <div style={{ maxHeight: 520, overflowY: 'auto' }}>
+            {filtered.length === 0
+              ? <div style={{ padding: 48, textAlign: 'center', fontSize: 13, color: '#8A8A82' }}>No tool calls yet. Run a pipeline to see activity.</div>
+              : filtered.map(call => (
+                <ToolCallRow key={call.id} call={call}
+                  expanded={expanded === call.id}
+                  onToggle={() => setExpanded(expanded === call.id ? null : call.id)} />
+              ))
+            }
           </div>
         </div>
 
-        {/* Right panel */}
-        <div className="space-y-4">
+        {/* Right column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <ToolTester tools={tools} />
-
-          {/* Tool groups */}
-          <div className="bg-surface border border-border rounded overflow-hidden">
-            <div className="px-4 py-3 border-b border-border bg-surface2 text-xs font-bold text-white tracking-wide">
-              AVAILABLE TOOLS
+          <div className="card overflow-hidden">
+            <div style={{ padding: '13px 16px', borderBottom: '1px solid #E5E5E0', ...syne, fontSize: 11, fontWeight: 700, color: '#0A0A0A', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Available Tools
             </div>
-            <div className="p-3 space-y-3">
+            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {TOOL_GROUPS.map(g => (
                 <div key={g.label}>
-                  <div className={`text-xs font-bold mb-1.5 ${g.color}`}>{g.label}</div>
-                  <div className="space-y-1">
+                  <div style={{ fontSize: 10, fontWeight: 700, color: g.color, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>{g.label}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {g.tools.map(t => {
                       const recent = calls.find(c => c.tool === t)
                       return (
-                        <div key={t} className="flex items-center gap-2 text-xs">
-                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${recent ? (recent.status === 'ok' ? 'bg-accent3' : 'bg-accent5') : 'bg-dim'}`} />
-                          <span className="text-muted font-mono truncate">{t}</span>
-                          {recent && <span className="ml-auto text-dim">{recent.duration_ms}ms</span>}
+                        <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: recent ? (recent.status === 'ok' ? '#059669' : '#DC2626') : '#E5E5E0' }} />
+                          <span style={{ fontFamily: 'JetBrains Mono, monospace', color: '#3D3D38', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{t}</span>
+                          {recent && <span style={{ color: '#8A8A82', fontSize: 10 }}>{recent.duration_ms}ms</span>}
                         </div>
                       )
                     })}

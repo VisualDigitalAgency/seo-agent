@@ -9,11 +9,13 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>
-        <div className="flex min-h-screen relative z-10">
+      <body style={{ background: '#FFFFFF' }}>
+        <div className="flex min-h-screen">
           <Sidebar />
-          <main className="flex-1 ml-64 p-8 min-h-screen">
-            {children}
+          <main className="main-content min-h-screen bg-[#FAFAF8] flex-1">
+            <div style={{ maxWidth: 1200, margin: '0 auto', padding: 'clamp(20px, 4vw, 40px) clamp(16px, 3vw, 32px)' }}>
+              {children}
+            </div>
           </main>
         </div>
       </body>

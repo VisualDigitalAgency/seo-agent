@@ -3,7 +3,7 @@ const B = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function GET(request, { params }) {
   const { runId } = await params
-  const backendRes = await fetch(`${B}/stream/${runId}`, {
+  const backendRes = await fetch(`${B}/api/stream/${runId}`, {
     headers: { 'Accept': 'text/event-stream' },
     cache: 'no-store',
   })

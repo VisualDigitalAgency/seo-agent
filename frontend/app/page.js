@@ -1,52 +1,84 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Play, Clock, CheckCircle, XCircle, Brain, Zap, ArrowRight, TrendingUp } from 'lucide-react'
+import { Play, CheckCircle, XCircle, Clock, ArrowRight, TrendingUp, Zap, Brain } from 'lucide-react'
 
-const STAGE_LABELS = ['Init', 'Keywords', 'SERP', 'Outline', 'Content', 'On-Page', 'Links', 'Memory']
+const syne = { fontFamily: 'Syne, sans-serif' }
 
-function StatCard({ label, value, sub, color = 'accent', icon: Icon }) {
-  const colorMap = { accent: 'text-accent border-accent/20 bg-accent/5', accent3: 'text-accent3 border-accent3/20 bg-accent3/5', accent4: 'text-accent4 border-accent4/20 bg-accent4/5', accent5: 'text-accent5 border-accent5/20 bg-accent5/5' }
+function StatusDot({ status }) {
+  const map = {
+    done:    { bg: '#059669' },
+    running: { bg: '#0041FF', pulse: true },
+    failed:  { bg: '#DC2626' },
+    pending: { bg: '#C8C8C0' },
+  }
+  const s = map[status] || map.pending
   return (
-    <div className={`border rounded p-5 ${colorMap[color]}`}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="text-xs text-muted uppercase tracking-widest">{label}</div>
-        {Icon && <Icon size={14} className="opacity-60" />}
+    <span
+      style={{ width: 8, height: 8, borderRadius: '50%', background: s.bg, display: 'inline-block', flexShrink: 0 }}
+      className={s.pulse ? 'animate-pulse' : ''}
+    />
+  )
+}
+
+function StatCard({ label, value, icon: Icon, color = '#0041FF' }) {
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#8A8A82', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</span>
+        <div style={{ width: 32, height: 32, borderRadius: 8, background: color + '12', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon size={14} style={{ color }} />
+        </div>
       </div>
-      <div className="text-3xl font-sans font-bold mb-1">{value}</div>
-      <div className="text-xs text-muted">{sub}</div>
+      <div style={{ ...syne, fontSize: 40, fontWeight: 700, color: '#0A0A0A', lineHeight: 1 }}>
+        {value}
+      </div>
     </div>
   )
 }
 
 function RunRow({ run }) {
-  const statusColor = { done: 'text-accent3', running: 'text-accent', failed: 'text-accent5', pending: 'text-muted' }
-  const statusDot = { done: 'bg-accent3', running: 'bg-accent animate-pulse', failed: 'bg-accent5', pending: 'bg-dim' }
-  const completedStages = Object.values(run.stages || {}).filter(s => s === 'done').length
-  const totalStages = Object.keys(run.stages || {}).length || 7
-  const pct = totalStages > 0 ? Math.round((completedStages / totalStages) * 100) : 0
+  const statusLabel = { done: 'Done', running: 'Running', failed: 'Failed', pending: 'Pending' }
+  const statusColor = { done: '#059669', running: '#0041FF', failed: '#DC2626', pending: '#8A8A82' }
+  const statusBg    = { done: '#ECFDF5', running: '#EEF1FF', failed: '#FEF2F2', pending: '#F3F3EF' }
+  const completed = Object.values(run.stages || {}).filter(s => s === 'done').length
+  const total     = Object.keys(run.stages || {}).length || 7
+  const pct       = Math.round((completed / total) * 100)
 
   return (
-    <Link href={`/runs/${run.run_id}`} className="flex items-center gap-4 px-4 py-3 hover:bg-surface2 border-b border-border/50 transition-colors group">
-      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDot[run.status] || 'bg-dim'}`} />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs text-white truncate">{run.task}</div>
-        <div className="text-xs text-muted mt-0.5">{run.run_id}</div>
+    <Link
+      href={`/runs/${run.run_id}`}
+      style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px', borderBottom: '1px solid #E5E5E0', textDecoration: 'none', transition: 'background 0.1s' }}
+      onMouseEnter={e => e.currentTarget.style.background = '#FAFAF8'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+    >
+      <StatusDot status={run.status} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: '#0A0A0A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.task}</div>
+        <div style={{ fontSize: 11, color: '#8A8A82', marginTop: 2, fontFamily: 'JetBrains Mono, monospace' }}>{run.run_id}</div>
       </div>
-      <div className="flex items-center gap-3">
-        <div className="w-24 h-1 bg-dim rounded-full overflow-hidden">
-          <div className="h-full bg-accent3 rounded-full transition-all" style={{ width: `${pct}%` }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 80, height: 3, background: '#E5E5E0', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: '#0041FF', borderRadius: 4, transition: 'width 0.3s' }} />
+          </div>
+          <span style={{ fontSize: 11, color: '#8A8A82', minWidth: 28 }}>{pct}%</span>
         </div>
-        <span className="text-xs text-muted w-8 text-right">{pct}%</span>
-        <span className={`text-xs font-mono w-16 text-right ${statusColor[run.status] || 'text-muted'}`}>{run.status}</span>
-        <ArrowRight size={12} className="text-dim group-hover:text-muted transition-colors" />
+        <span style={{
+          fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20,
+          background: statusBg[run.status] || statusBg.pending,
+          color: statusColor[run.status] || statusColor.pending,
+        }}>
+          {statusLabel[run.status] || run.status}
+        </span>
+        <ArrowRight size={13} style={{ color: '#C8C8C0' }} />
       </div>
     </Link>
   )
 }
 
 export default function Dashboard() {
-  const [runs, setRuns] = useState([])
+  const [runs, setRuns]     = useState([])
   const [memory, setMemory] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -54,107 +86,117 @@ export default function Dashboard() {
     Promise.all([
       fetch('/api/runs').then(r => r.json()).catch(() => ({ runs: [] })),
       fetch('/api/memory').then(r => r.json()).catch(() => ({ learnings: [] }))
-    ]).then(([runsData, memData]) => {
-      setRuns(runsData.runs || [])
-      setMemory(memData.learnings || [])
+    ]).then(([r, m]) => {
+      setRuns(r.runs || [])
+      setMemory(m.learnings || [])
       setLoading(false)
     })
   }, [])
 
   const stats = {
-    total: runs.length,
-    done: runs.filter(r => r.status === 'done').length,
-    failed: runs.filter(r => r.status === 'failed').length,
+    total:   runs.length,
+    done:    runs.filter(r => r.status === 'done').length,
     running: runs.filter(r => r.status === 'running').length,
+    failed:  runs.filter(r => r.status === 'failed').length,
   }
-
-  const recentRuns = [...runs].sort((a, b) => b.run_id.localeCompare(a.run_id)).slice(0, 8)
+  const recent = [...runs].sort((a, b) => b.run_id.localeCompare(a.run_id)).slice(0, 8)
 
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex items-start justify-between mb-10">
         <div>
-          <div className="flex items-center gap-2 text-xs text-muted uppercase tracking-widest mb-2">
-            <Zap size={10} className="text-accent" />
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8A8A82', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
             Autonomous SEO Pipeline
           </div>
-          <h1 className="font-sans text-3xl font-bold text-white tracking-tight">Dashboard</h1>
-          <p className="text-muted text-xs mt-1">Monitor runs · Review outputs · Track learnings</p>
+          <h1 style={{ ...syne, fontSize: 36, fontWeight: 700, color: '#0A0A0A', lineHeight: 1.1, letterSpacing: '-0.5px' }}>
+            Dashboard
+          </h1>
+          <p style={{ fontSize: 13, color: '#8A8A82', marginTop: 6 }}>
+            Monitor runs · Review outputs · Track learnings
+          </p>
         </div>
-        <Link href="/task"
-          className="flex items-center gap-2 px-4 py-2.5 bg-accent text-bg text-xs font-bold rounded tracking-wide hover:bg-accent/90 transition-colors">
+        <Link
+          href="/task"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '11px 20px',
+            background: '#0041FF', color: '#FFFFFF',
+            fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: 700,
+            letterSpacing: '0.06em', textTransform: 'uppercase',
+            borderRadius: 8, textDecoration: 'none',
+            transition: 'opacity 0.15s',
+          }}
+          onMouseEnter={e => e.currentTarget.style.opacity = '0.88'}
+          onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+        >
           <Play size={12} />
-          NEW RUN
+          New Run
         </Link>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        <StatCard label="Total Runs" value={loading ? '—' : stats.total} sub="all time" color="accent" icon={TrendingUp} />
-        <StatCard label="Completed" value={loading ? '—' : stats.done} sub="successful" color="accent3" icon={CheckCircle} />
-        <StatCard label="Active" value={loading ? '—' : stats.running} sub="in progress" color="accent4" icon={Clock} />
-        <StatCard label="Failed" value={loading ? '—' : stats.failed} sub="need attention" color="accent5" icon={XCircle} />
+      <div className="grid-stats mb-10">
+        <StatCard label="Total Runs"  value={loading ? '—' : stats.total}   icon={TrendingUp} color="#0041FF" />
+        <StatCard label="Completed"   value={loading ? '—' : stats.done}    icon={CheckCircle} color="#059669" />
+        <StatCard label="Active"      value={loading ? '—' : stats.running} icon={Zap}         color="#D97706" />
+        <StatCard label="Failed"      value={loading ? '—' : stats.failed}  icon={XCircle}     color="#DC2626" />
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid-dash">
         {/* Recent Runs */}
-        <div className="col-span-2 bg-surface border border-border rounded overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface2">
-            <span className="text-xs font-bold text-white tracking-wide">RECENT RUNS</span>
-            <Link href="/runs" className="text-xs text-muted hover:text-accent transition-colors flex items-center gap-1">
-              View all <ArrowRight size={10} />
+        <div className="card overflow-hidden">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #E5E5E0' }}>
+            <span style={{ ...syne, fontSize: 12, fontWeight: 700, color: '#0A0A0A', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Recent Runs</span>
+            <Link href="/runs" style={{ fontSize: 12, color: '#8A8A82', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+              onMouseEnter={e => e.currentTarget.style.color = '#0041FF'}
+              onMouseLeave={e => e.currentTarget.style.color = '#8A8A82'}>
+              View all <ArrowRight size={11} />
             </Link>
           </div>
           {loading ? (
-            <div className="p-8 text-center text-xs text-muted">Loading...</div>
-          ) : recentRuns.length === 0 ? (
-            <div className="p-8 text-center">
-              <div className="text-xs text-muted mb-3">No runs yet</div>
-              <Link href="/task" className="text-xs text-accent hover:underline">Start your first run →</Link>
+            <div style={{ padding: 40, textAlign: 'center', color: '#8A8A82', fontSize: 13 }}>Loading…</div>
+          ) : recent.length === 0 ? (
+            <div style={{ padding: 48, textAlign: 'center' }}>
+              <div style={{ fontSize: 13, color: '#8A8A82', marginBottom: 12 }}>No runs yet</div>
+              <Link href="/task" style={{ fontSize: 13, color: '#0041FF', textDecoration: 'none', fontWeight: 500 }}>
+                Start your first run →
+              </Link>
             </div>
           ) : (
-            recentRuns.map(run => <RunRow key={run.run_id} run={run} />)
+            recent.map(run => <RunRow key={run.run_id} run={run} />)
           )}
         </div>
 
-        {/* Memory Highlights */}
-        <div className="bg-surface border border-border rounded overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface2">
-            <div className="flex items-center gap-2">
-              <Brain size={12} className="text-accent3" />
-              <span className="text-xs font-bold text-white tracking-wide">LEARNINGS</span>
+        {/* Memory */}
+        <div className="card overflow-hidden">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #E5E5E0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Brain size={13} style={{ color: '#059669' }} />
+              <span style={{ ...syne, fontSize: 12, fontWeight: 700, color: '#0A0A0A', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Learnings</span>
             </div>
-            <Link href="/memory" className="text-xs text-muted hover:text-accent3 transition-colors">
-              <ArrowRight size={10} />
+            <Link href="/memory" style={{ color: '#C8C8C0', textDecoration: 'none' }}>
+              <ArrowRight size={12} />
             </Link>
           </div>
-          <div className="p-4 space-y-3">
+          <div style={{ padding: '12px 16px' }}>
             {loading ? (
-              <div className="text-xs text-muted">Loading...</div>
+              <div style={{ fontSize: 13, color: '#8A8A82' }}>Loading…</div>
             ) : memory.length === 0 ? (
-              <div className="text-xs text-muted">No learnings yet. Complete a run to generate insights.</div>
-            ) : (
-              memory.slice(0, 5).map((item, i) => (
-                <div key={i} className="border border-border/50 rounded p-3 bg-surface2/50">
-                  <div className="text-xs text-white truncate mb-1">{item.task}</div>
-                  <div className="text-xs text-muted">
-                    {item.insights?.slice(0, 1).map((ins, j) => (
-                      <div key={j} className="flex items-start gap-1.5">
-                        <span className="text-accent3 mt-0.5">›</span>
-                        <span>{ins}</span>
-                      </div>
-                    ))}
+              <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: '#8A8A82' }}>
+                No learnings yet.<br />Complete a run to generate insights.
+              </div>
+            ) : memory.slice(0, 5).map((item, i) => (
+              <div key={i} style={{ padding: '10px 0', borderBottom: i < 4 ? '1px solid #F3F3EF' : 'none' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#0A0A0A', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.task}</div>
+                {item.insights?.slice(0, 1).map((ins, j) => (
+                  <div key={j} style={{ display: 'flex', gap: 6, fontSize: 11, color: '#8A8A82' }}>
+                    <span style={{ color: '#059669', flexShrink: 0 }}>›</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ins}</span>
                   </div>
-                  {item.ranking && (
-                    <div className="mt-2 text-xs">
-                      <span className="text-muted">Rank: </span>
-                      <span className="text-accent4">#{item.ranking}</span>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       </div>

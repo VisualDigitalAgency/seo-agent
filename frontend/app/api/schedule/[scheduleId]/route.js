@@ -3,7 +3,7 @@ const B = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function DELETE(request, { params }) {
   const { scheduleId } = await params
-  const res  = await fetch(`${B}/schedules/${scheduleId}`, { method: 'DELETE' })
+  const res  = await fetch(`${B}/api/schedules/${scheduleId}`, { method: 'DELETE' })
   const data = await res.json()
   return NextResponse.json(data, { status: res.status })
 }
@@ -15,7 +15,7 @@ export async function POST(request, { params }) {
   const action = url.searchParams.get('action')
 
   if (action === 'run-now') {
-    const res  = await fetch(`${B}/schedules/${scheduleId}/run-now`, { method: 'POST' })
+    const res  = await fetch(`${B}/api/schedules/${scheduleId}/run-now`, { method: 'POST' })
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })
   }
