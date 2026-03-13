@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useRef, use } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { RefreshCw, ArrowLeft, Terminal, FileJson, CheckCircle, XCircle, Clock, Loader, RotateCcw } from 'lucide-react'
 
@@ -47,7 +47,7 @@ function JSONView({ data }) {
 }
 
 export default function RunDetailPage({ params }) {
-  const { runId } = use(params)
+  const { runId } = params
   const [run, setRun]           = useState(null)
   const [logs, setLogs]         = useState([])
   const [activeTab, setActiveTab]   = useState('timeline')
