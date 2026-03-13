@@ -186,8 +186,6 @@ function ContentOutput({ data, task }) {
           </pre>
         )}
       </div>
-      </div>
-
       {/* FAQ Schema */}
       {data.faq_schema && (
         <div className="card overflow-hidden" style={{ marginTop: 16 }}>
