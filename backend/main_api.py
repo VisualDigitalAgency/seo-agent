@@ -28,6 +28,10 @@ env_path = Path(os.getcwd()) / ".env.local"
 if env_path.exists():
     load_dotenv(dotenv_path=env_path, override=True)
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s — %(message)s")
+logger = logging.getLogger("seo-backend")
+
 # Validate required environment variables at startup
 def validate_env_vars():
     """Check for required environment variables and log warnings for missing ones."""
@@ -60,15 +64,16 @@ def validate_env_vars():
 # Call validation after loading env vars
 validate_env_vars()
 
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, JSONResponse
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from .rate_limit_middleware import limiter
+from rate_limit_middleware import limiter
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from middleware.request_size_limit import RequestSizeLimitMiddleware
 from jsonschema import validate, ValidationError
-from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
-from . import metrics as app_metrics
+import metrics as app_metrics
 from middleware.metrics_middleware import MetricsMiddleware
 
 from middleware.guards import PermissionGuard
@@ -76,10 +81,6 @@ from middleware.auth import get_auth_middleware
 from tools import serper, dataforseo, gsc, ga4, filesystem
 from scheduler import SEOScheduler
 import fs_utils as fs
-
-# ── Logging ───────────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s — %(message)s")
-logger = logging.getLogger("seo-backend")
 
 # ── Tool call log (in-memory ring buffer, last 500 calls) ─────────────────────
 tool_call_log: list[dict] = []
@@ -157,48 +158,6 @@ async def slowapi_rate_limit_handler(request: Request, exc: RateLimitExceeded):
 # we'll instead implement a simple token bucket rate limiter as middleware.
 # For simplicity, we apply rate limiting only to specific high-traffic endpoints.
 
-# Apply rate limiting to public API endpoints with per-endpoint configuration
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    # Only apply rate limiting to public endpoints (not /tools/*)
-    if not request.url.path.startswith("/tools/"):
-        path = request.url.path
-
-        # Check for per-endpoint rate limits
-        matched_limit = None
-        for pattern, limits in PER_ENDPOINT_RATE_LIMITS.items():
-            # Convert path parameter patterns like "/logs/{run_id}" to match
-            pattern_parts = pattern.split('/')
-            path_parts = path.split('/')
-
-            if len(pattern_parts) == len(path_parts):
-                match = True
-                for p_part, path_part in zip(pattern_parts, path_parts):
-                    if p_part.startswith('{') and p_part.endswith('}'):
-                        # Parameter - any value matches
-                        continue
-                    elif p_part != path_part:
-                        match = False
-                        break
-
-                if match:
-                    matched_limit = limits
-                    break
-
-        # Apply the specific limit if found, else use default
-        if matched_limit:
-            # Set custom limits for this request by temporarily overriding the limiter's defaults
-            original_limits = limiter._default_limits
-            limiter._default_limits = matched_limit
-            try:
-                response = await limiter.middleware(request, call_next)
-            finally:
-                limiter._default_limits = original_limits
-            return response
-        else:
-            await limiter.middleware(request, call_next)
-    else:
-        return await call_next(request)
 
 # CORS — allow Vercel frontend + local dev
 ALLOWED_ORIGINS = [
@@ -215,6 +174,8 @@ app.add_middleware(
     allow_credentials=False,
 )
 app.add_middleware(PermissionGuard)
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 
 
 # ── Request ID Middleware ───────────────────────────────────────────────────────
@@ -243,8 +204,9 @@ app.add_middleware(get_auth_middleware)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
+@limiter.limit("30/minute", "200/hour")
 @app.get("/health")
-def health():
+def health(request: Request):
     """Health check endpoint with dependency status"""
     # Check external service availability
     dependencies = {
@@ -266,8 +228,9 @@ def health():
 
 
 # ── Metrics ─────────────────────────────────────────────────────────────────────
+@limiter.limit("30/minute", "200/hour")
 @app.get("/metrics")
-def metrics(format: str = "json"):
+def metrics(request: Request, format: str = "json"):
     """
     Application metrics endpoint.
     Supports Prometheus format (?format=prometheus) or JSON (?format=json).
@@ -309,13 +272,13 @@ async def start_run(request: Request, background_tasks: BackgroundTasks):
 
 @app.get("/runs")
 @limiter.limit("60/minute")
-def list_runs():
+def list_runs(request: Request):
     return {"runs": fs.list_all_runs()}
 
 
 @app.get("/api/run/{run_id}")
 @limiter.limit("60/minute")
-def get_run(run_id: str):
+def get_run(request: Request, run_id: str):
     status = fs.read_status(run_id)
     if not status:
         raise HTTPException(404, "Run not found")
@@ -324,14 +287,14 @@ def get_run(run_id: str):
 
 @app.delete("/api/run/{run_id}")
 @limiter.limit("60/minute")
-def delete_run_endpoint(run_id: str):
+def delete_run_endpoint(request: Request, run_id: str):
     fs.delete_run(run_id)
     return {"deleted": True}
 
 
 @app.post("/api/run/{run_id}/resume")
 @limiter.limit("60/minute")
-async def resume_run(run_id: str, background_tasks: BackgroundTasks):
+async def resume_run(request: Request, run_id: str, background_tasks: BackgroundTasks):
     status = fs.read_status(run_id)
     if not status:
         raise HTTPException(404, "Run not found")
@@ -353,7 +316,7 @@ async def resume_run(run_id: str, background_tasks: BackgroundTasks):
 
 @app.get("/api/run/{run_id}/stage/{n}")
 @limiter.limit("60/minute")
-def get_stage_output(run_id: str, n: int):
+def get_stage_output(request: Request, run_id: str, n: int):
     data = fs.read_stage_output(run_id, n)
     if not data:
         raise HTTPException(404, "Stage output not found")
@@ -362,14 +325,14 @@ def get_stage_output(run_id: str, n: int):
 
 @app.get("/logs/{run_id}")
 @limiter.limit("60/minute")
-def get_logs(run_id: str, tail: int = 200):
+def get_logs(request: Request, run_id: str, tail: int = 200):
     return {"lines": fs.read_log_tail(run_id, tail)}
 
 
 # ── SSE streaming ─────────────────────────────────────────────────────────────
 @app.get("/api/stream/{run_id}")
 @limiter.limit("30/minute")
-async def stream_run(run_id: str):
+async def stream_run(request: Request, run_id: str):
     async def event_generator():
         import aiofiles
         log_path = fs.get_log_path(run_id)
@@ -419,7 +382,7 @@ async def stream_run(run_id: str):
 
 @app.get("/api/schedules")
 @limiter.limit("60/minute")
-def list_schedules():
+def list_schedules(request: Request):
     return {"schedules": scheduler.list_schedules()}
 
 
@@ -439,14 +402,14 @@ async def create_schedule(request: Request, background_tasks: BackgroundTasks):
 
 @app.delete("/api/schedules/{schedule_id}")
 @limiter.limit("60/minute")
-def delete_schedule(schedule_id: str):
+def delete_schedule(request: Request, schedule_id: str):
     scheduler.remove_schedule(schedule_id)
     return {"deleted": True}
 
 
 @app.post("/api/schedules/{schedule_id}/run-now")
 @limiter.limit("60/minute")
-async def run_schedule_now(schedule_id: str, background_tasks: BackgroundTasks):
+async def run_schedule_now(request: Request, schedule_id: str, background_tasks: BackgroundTasks):
     sched = scheduler.get_schedule(schedule_id)
     if not sched:
         raise HTTPException(404, "Schedule not found")
@@ -462,7 +425,7 @@ async def run_schedule_now(schedule_id: str, background_tasks: BackgroundTasks):
 
 @app.get("/api/memory")
 @limiter.limit("60/minute")
-def get_memory(q: str = ""):
+def get_memory(request: Request, q: str = ""):
     learnings = fs.read_learnings()
     history   = fs.read_task_history()
     if q:
@@ -498,7 +461,7 @@ async def post_memory(request: Request):
 
 @app.get("/config")
 @limiter.limit("60/minute")
-def get_config():
+def get_config(request: Request):
     cfg = fs.read_config()
     env = fs.read_env_keys()
     return {**cfg, "env": env}
@@ -530,14 +493,14 @@ async def post_config(request: Request):
 
 @app.get("/tools")
 @limiter.limit("60/minute")
-def get_tools():
+def get_tools(request: Request):
     from server_tools import TOOL_DEFINITIONS
     return {"tools": TOOL_DEFINITIONS}
 
 
 @app.get("/tool-calls")
 @limiter.limit("60/minute")
-def get_tool_calls(limit: int = 100, persistent: bool = False, days: int = 1):
+def get_tool_calls(request: Request, limit: int = 100, persistent: bool = False, days: int = 1):
     """
     Get recent tool calls.
 

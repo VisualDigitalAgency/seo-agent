@@ -87,7 +87,7 @@ class ToolCallRequest(BaseModel):
     location_code: Optional[int] = Field(None)
     site_url: Optional[str] = Field(None)
     page_url: Optional[str] = Field(None)
-    days: Optional[int] = Field(None, ge=1, ge=365)
+    days: Optional[int] = Field(None, ge=1, le=365)
     drop_threshold: Optional[float] = Field(None, ge=0)
     drop_pct: Optional[float] = Field(None, ge=0, le=100)
     run_id: Optional[str] = Field(None)

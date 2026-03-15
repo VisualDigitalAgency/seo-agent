@@ -6,7 +6,7 @@ Records API call counts and errors for monitoring.
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from . import metrics as app_metrics
+import metrics as app_metrics
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

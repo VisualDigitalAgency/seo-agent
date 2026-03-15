@@ -4,6 +4,7 @@ Simple in-memory cache for tool results with TTL.
 
 import time
 import hashlib
+import asyncio
 from typing import Any, Dict, Tuple, Optional
 from dataclasses import dataclass
 

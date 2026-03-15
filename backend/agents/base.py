@@ -259,7 +259,7 @@ class BaseAgent:
                 if content.startswith("```"):
                     lines   = content.split("\n")
                     start   = 1
-                    end     = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)]
+                    end     = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
                     content = "\n".join(lines[start:end]).strip()
 
                 try:

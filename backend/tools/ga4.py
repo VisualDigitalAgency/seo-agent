@@ -116,7 +116,7 @@ async def _ga4_api_call(
     return _run_report(client, property_id, dimensions, metrics, date_ranges, dimension_filter, limit)
 
 
-async def _retry_with_backoff(func: Callable[..., T], *args, **kwargs) -> T:
+async def _retry_with_backoff(func: Callable[..., Any], *args, **kwargs) -> Any:
     """Execute a function with exponential backoff retry."""
     last_exception = None
 
