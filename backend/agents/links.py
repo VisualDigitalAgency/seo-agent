@@ -5,19 +5,22 @@ import json
 
 class LinksAgent(BaseAgent):
 
+    required_tools = []  # This agent doesn't use LLM tool calls
+
     def build_cluster(self, context):
         self.log("Links Agent: Building topic cluster and internal link map...")
         skill = self.load_skill('internal_linking')
         kw = context.get('keyword_research', {})
         onpage = context.get('onpage_optimization', {})
 
-        domain = self.pipeline.domain or 'yoursite.com'
+        domain = self.pipeline.domain or ''
+        domain_display = domain or 'your-domain.com'  # display only, not used in URLs
 
         prompt = f"""
 {skill}
 
 PRIMARY TOPIC: {self.pipeline.task}
-DOMAIN: {domain}
+DOMAIN: {domain_display}
 TARGET AUDIENCE: {self.pipeline.audience or 'General'}
 PRIMARY KEYWORD: {kw.get('primary', self.pipeline.task)}
 SECONDARY KEYWORDS: {', '.join(kw.get('secondary', []))}
@@ -29,7 +32,7 @@ Build a complete topic cluster and internal linking strategy. Return JSON:
 {{
   "pillar_page": {{
     "topic": "main pillar topic",
-    "url": "/{domain}/pillar-page-slug",
+    "url": "/pillar-page-slug",
     "target_keyword": "primary kw"
   }},
   "cluster_pages": [

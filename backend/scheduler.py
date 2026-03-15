@@ -41,8 +41,9 @@ class SEOScheduler:
         logger.info(f"Scheduler started with {len(self._schedules)} schedules")
 
     def shutdown(self):
+        """Shutdown the scheduler gracefully, waiting for running jobs to complete."""
         if self._scheduler and self._scheduler.running:
-            self._scheduler.shutdown(wait=False)
+            self._scheduler.shutdown(wait=True)
 
     def is_running(self) -> bool:
         return bool(self._scheduler and self._scheduler.running)

@@ -4,3 +4,4 @@ from .onpage import OnPageAgent
 from .links import LinksAgent
 from .analyst import AnalystAgent
 from .memory import MemoryAgent
+from .editor import EditorAgent

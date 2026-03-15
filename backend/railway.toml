@@ -2,7 +2,7 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "uvicorn main_api:app --host 0.0.0.0 --port $PORT"
+startCommand = "gunicorn -c gunicorn.conf.py main_api:app"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
@@ -10,3 +10,59 @@ restartPolicyMaxRetries = 3
 
 [[mounts]]
 mountPath = "/data"
+
+[[services.web.envVars]]
+key = "PYTHON_VERSION"
+value = "3.11"
+
+[[services.web.envVars]]
+key = "OPENROUTER_API_KEY"
+sync = false
+
+[[services.web.envVars]]
+key = "SERPER_API_KEY"
+sync = false
+
+[[services.web.envVars]]
+key = "SERPAPI_KEY"
+sync = false
+
+[[services.web.envVars]]
+key = "DATAFORSEO_LOGIN"
+sync = false
+
+[[services.web.envVars]]
+key = "DATAFORSEO_PASSWORD"
+sync = false
+
+[[services.web.envVars]]
+key = "GA4_PROPERTY_ID"
+sync = false
+
+[[services.web.envVars]]
+key = "FRONTEND_URL"
+sync = false
+
+[[services.web.envVars]]
+key = "GSC_CREDENTIALS_PATH"
+value = "/data/gsc-credentials.json"
+sync = false
+
+[[services.web.envVars]]
+key = "GA4_CREDENTIALS_PATH"
+value = "/data/ga4-credentials.json"
+sync = false
+
+[[services.web.envVars]]
+key = "API_KEYS"
+sync = false
+
+[[services.web.envVars]]
+key = "LOG_LEVEL"
+value = "INFO"
+sync = false
+
+[[services.web.envVars]]
+key = "WORKER_TIMEOUT"
+value = "300"
+sync = false

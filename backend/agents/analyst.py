@@ -15,6 +15,15 @@ TOOL_SERVER = os.environ.get("TOOL_SERVER_URL", "http://localhost:8000")
 
 class AnalystAgent(BaseAgent):
 
+    required_tools = [
+        "gsc_get_rankings",
+        "gsc_get_top_queries",
+        "gsc_detect_ranking_drops",
+        "ga4_get_top_pages",
+        "ga4_detect_traffic_drops",
+        "search_serp",
+    ]
+
     def analyze(self, context: dict) -> dict:
         self.log("Analyst Agent: Starting performance analysis...")
 
@@ -23,6 +32,43 @@ class AnalystAgent(BaseAgent):
         kw        = context.get("keyword_research", {})
         domain    = self.pipeline.domain
         site_url  = f"https://{domain}" if domain and not domain.startswith("http") else domain
+
+        # ── Skip LLM entirely when no domain is configured ──────────────────
+        if not site_url:
+            self.log("No domain set — returning structured empty analysis (no LLM call)", level='WARNING')
+            primary_kw = kw.get("primary", self.pipeline.task)
+            return {
+                "overall_health":    "unknown",
+                "health_score":      None,
+                "summary":           (
+                    f"No domain configured. Analyst review skipped. "
+                    f"Configure your domain in Settings to enable GSC/GA4 analysis."
+                ),
+                "ranking_analysis":  {
+                    "current_position": None,
+                    "position_trend":   "unknown",
+                    "impressions_trend":"unknown",
+                    "ctr":              None,
+                    "notes":            "No domain configured",
+                },
+                "traffic_analysis":  {
+                    "sessions_trend":     "unknown",
+                    "top_traffic_pages":  [],
+                    "traffic_drop_alerts":[],
+                },
+                "issues_detected":       [],
+                "recommendations":       [{
+                    "priority":        "high",
+                    "action":          "Configure your domain in Settings to enable live GSC/GA4 analysis",
+                    "expected_impact": "Unlocks ranking tracking, traffic analysis, and content decay detection",
+                    "effort":          "low",
+                }],
+                "content_refresh_needed":False,
+                "refresh_reason":        "",
+                "competitor_threats":    [],
+                "opportunities":         [],
+                "skipped_reason":        "no_domain",
+            }
 
         analysis_data = {}
 
@@ -33,8 +79,8 @@ class AnalystAgent(BaseAgent):
             analysis_data["gsc_rankings"] = gsc_rankings
 
             self.log("Fetching GSC top queries...")
-            gsc_queries = self._tool("gsc_top_queries", {"site_url": site_url, "days": 30, "limit": 20})
-            analysis_data["gsc_top_queries"] = gsc_queries
+            gsc_queries = self._tool("gsc_get_top_queries", {"site_url": site_url, "days": 30, "limit": 20})
+            analysis_data["gsc_get_top_queries"] = gsc_queries
 
             self.log("Detecting GSC ranking drops...")
             gsc_drops = self._tool("gsc_detect_ranking_drops", {"site_url": site_url, "drop_threshold": 2.0, "days": 28})

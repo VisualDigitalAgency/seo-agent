@@ -3,7 +3,7 @@ services:
     name: seo-agent-backend
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main_api:app --host 0.0.0.0 --port $PORT
+    startCommand: gunicorn -c gunicorn.conf.py main_api:app
     healthCheckPath: /health
     disk:
       name: seo-data
@@ -12,8 +12,6 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
-      - key: FRONTEND_URL
-        sync: false
       - key: OPENROUTER_API_KEY
         sync: false
       - key: SERPER_API_KEY
@@ -26,3 +24,15 @@ services:
         sync: false
       - key: GA4_PROPERTY_ID
         sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: GSC_CREDENTIALS_PATH
+        value: "/data/gsc-credentials.json"
+      - key: GA4_CREDENTIALS_PATH
+        value: "/data/ga4-credentials.json"
+      - key: API_KEYS
+        sync: false
+      - key: LOG_LEVEL
+        value: "INFO"
+      - key: WORKER_TIMEOUT
+        value: "300"

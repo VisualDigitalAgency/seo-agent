@@ -16,10 +16,11 @@ MEMORY_DIR = Path(os.getcwd()) / "memory"
 STAGE_FILE_MAP = {
     "keyword_research":    "01_keywords.json",
     "serp_analysis":       "02_serp.json",
-    "content_outline":     "03_outline.json",
     "content_writing":     "04_content.json",
     "onpage_optimization": "05_onpage.json",
     "internal_linking":    "06_links.json",
+    "analyst_review":      "07_analyst.json",
+    "senior_editor":       "08_final.json",
     "memory_update":       "memory_update.json",
 }
 

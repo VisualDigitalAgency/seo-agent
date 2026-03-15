@@ -11,28 +11,29 @@ import time
 import logging
 from datetime import datetime
 from pathlib import Path
+from pythonjsonlogger import jsonlogger
 
 
 class Pipeline:
     STAGES = [
         'keyword_research',
         'serp_analysis',
-        'content_outline',
         'content_writing',
         'onpage_optimization',
         'internal_linking',
         'analyst_review',
+        'senior_editor',
         'memory_update',
     ]
 
     STAGE_FILE_MAP = {
         'keyword_research':   '01_keywords.json',
         'serp_analysis':      '02_serp.json',
-        'content_outline':    '03_outline.json',
         'content_writing':    '04_content.json',
         'onpage_optimization':'05_onpage.json',
         'internal_linking':   '06_links.json',
         'analyst_review':     '07_analyst.json',
+        'senior_editor':      '08_final.json',
         'memory_update':      'memory_update.json',
     }
 
@@ -66,17 +67,26 @@ class Pipeline:
         self.logger.setLevel(logging.DEBUG)
         self.logger.handlers = []
 
-        # File handler
+        # Structured JSON logging
+        class CustomJsonFormatter(jsonlogger.JsonFormatter):
+            def add_fields(self, log_record, record, message_dict):
+                super(CustomJsonFormatter, self).add_fields(log_record, record, message_dict)
+                if not log_record.get('timestamp'):
+                    log_record['timestamp'] = datetime.utcnow().isoformat()
+                if not log_record.get('run_id'):
+                    log_record['run_id'] = self.run_id
+                if not log_record.get('stage'):
+                    log_record['stage'] = None
+
+        # File handler with JSON format
         fh = logging.FileHandler(self.log_path)
         fh.setLevel(logging.DEBUG)
+        fh.setFormatter(CustomJsonFormatter())
 
-        # Console handler (stdout so Next.js child_process captures it)
+        # Console handler with JSON format
         ch = logging.StreamHandler(sys.stdout)
         ch.setLevel(logging.DEBUG)
-
-        fmt = logging.Formatter('[%(asctime)s] %(levelname)s — %(message)s', datefmt='%H:%M:%S')
-        fh.setFormatter(fmt)
-        ch.setFormatter(fmt)
+        ch.setFormatter(CustomJsonFormatter())
 
         self.logger.addHandler(fh)
         self.logger.addHandler(ch)
@@ -84,7 +94,7 @@ class Pipeline:
     def _load_config(self):
         config_path = Path(os.getcwd()) / 'config.json'
         defaults = {
-            'model': {'model': 'claude-sonnet-4-20250514', 'max_tokens': 4096, 'temperature': 0.3},
+            'model': {'model': 'openrouter/free', 'max_tokens': 65536, 'temperature': 0.3},
             'pipeline': {'max_retries': 3, 'retry_delay': 5, 'timeout_per_stage': 120}
         }
         if config_path.exists():
@@ -96,8 +106,24 @@ class Pipeline:
                 pass
         return defaults
 
-    def log(self, msg, level='INFO'):
-        getattr(self.logger, level.lower(), self.logger.info)(msg)
+    def log(self, msg, level='INFO', stage=None, extra=None):
+        """
+        Log a message with structured context.
+
+        Args:
+            msg: The log message
+            level: Log level (INFO, ERROR, WARNING, DEBUG)
+            stage: Optional stage name to include in log
+            extra: Optional dict of additional fields to include
+        """
+        logger = getattr(self.logger, level.lower(), self.logger.info)
+
+        # Build extra fields
+        log_extra = {'stage': stage} if stage else {'stage': None}
+        if extra:
+            log_extra.update(extra)
+
+        logger(msg, extra=log_extra) if extra else logger(msg)
 
     # ── Status management ─────────────────────────────────────────
     def read_status(self):
@@ -241,11 +267,11 @@ class Pipeline:
         stage_to_agent = {
             'keyword_research':    ('agents.research',  'ResearchAgent',  'keyword_research'),
             'serp_analysis':       ('agents.research',  'ResearchAgent',  'serp_analysis'),
-            'content_outline':     ('agents.content',   'ContentAgent',   'content_outline'),
             'content_writing':     ('agents.content',   'ContentAgent',   'content_writing'),
             'onpage_optimization': ('agents.onpage',    'OnPageAgent',    'optimize'),
             'internal_linking':    ('agents.links',     'LinksAgent',     'build_cluster'),
             'analyst_review':      ('agents.analyst',   'AnalystAgent',   'analyze'),
+            'senior_editor':       ('agents.editor',    'EditorAgent',    'edit'),
             'memory_update':       ('agents.memory',    'MemoryAgent',    'update'),
         }
 

@@ -19,6 +19,7 @@ const MODEL_GROUPS = [
     { value: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
     { value: 'anthropic/claude-haiku-4-5',  label: 'Claude Haiku 4.5 (fast + cheap)' },
     { value: 'anthropic/claude-opus-4-5',   label: 'Claude Opus 4.5 (most capable)' },
+    { value: 'anthropic/claude-3-haiku',    label: 'Claude 3 Haiku (free tier)' },
   ]},
   { label: 'OpenAI', models: [
     { value: 'openai/gpt-4o',      label: 'GPT-4o' },
@@ -73,12 +74,11 @@ function ModelSelect({ value, onChange }) {
 
 export default function SettingsPage() {
   const [config, setConfig]         = useState({})
-  const [modelSettings, setModel]   = useState({ model: 'anthropic/claude-sonnet-4-5', research_model: 'openai/gpt-4o-mini', content_model: 'anthropic/claude-sonnet-4-5', onpage_model: 'openai/gpt-4o-mini', links_model: 'openai/gpt-4o-mini', memory_model: 'openai/gpt-4o-mini', max_tokens: 4096, temperature: 0.3 })
+  const [modelSettings, setModel]   = useState({ model: 'openrouter/free', research_model: 'openrouter/free', content_model: 'openrouter/free', onpage_model: 'openrouter/free', links_model: 'openrouter/free', memory_model: 'openrouter/free', max_tokens: 65536, temperature: 0.3 })
   const [pipeline, setPipeline]     = useState({ max_retries: 3, retry_delay: 5, timeout_per_stage: 120 })
   const [visible, setVisible]       = useState({})
   const [saving, setSaving]         = useState(false)
   const [saved, setSaved]           = useState(false)
-  const [loading, setLoading]       = useState(true)
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(d => {

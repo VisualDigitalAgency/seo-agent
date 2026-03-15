@@ -21,7 +21,9 @@ Write a complete, SEO-optimized article that ranks and converts.
 ## Quality Checklist
 - [ ] Primary keyword in title, intro, H2s, conclusion
 - [ ] No keyword stuffing (natural flow)
-- [ ] At least one table or comparison if relevant
+- [ ] Include a comparison or data table wherever it helps scanability (pricing tiers, feature comparisons, pros/cons, step timelines, stat roundups)
+- [ ] Tables must use full HTML: <table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table>
+- [ ] Wrap every table in <div class="table-wrap"> for mobile scroll
 - [ ] All H tags properly nested
 - [ ] FAQ schema compatible format
 - [ ] CTA is specific and action-oriented

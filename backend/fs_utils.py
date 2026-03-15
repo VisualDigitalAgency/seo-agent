@@ -7,6 +7,7 @@ otherwise falls back to /tmp (ephemeral — fine for dev/testing).
 import os
 import json
 import csv
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,9 @@ CONFIG_PATH = lambda: _base() / "config.json"
 ENV_PATH    = lambda: _base() / ".env.local"
 SCHEDULES_PATH = lambda: _base() / "schedules.json"
 
+# Validate run_id to prevent path traversal attacks
+RUN_ID_PATTERN = re.compile(r'^run_\d{8}_\d{6}$')
+
 
 def new_run_id() -> str:
     now = datetime.utcnow()
@@ -31,6 +35,14 @@ def new_run_id() -> str:
 
 
 def get_run_dir(run_id: str) -> Path:
+    """
+    Get the run directory for a given run_id.
+    Validates run_id to prevent path traversal attacks.
+    run_id must match pattern: run_YYYYMMDD_HHMMSS
+    """
+    if not RUN_ID_PATTERN.match(run_id):
+        raise ValueError(f"Invalid run_id format: {run_id}. Must match pattern: run_YYYYMMDD_HHMMSS")
+
     p = RUNS_DIR() / run_id
     p.mkdir(parents=True, exist_ok=True)
     return p
@@ -58,11 +70,11 @@ def init_run(run_id: str, task_data: dict):
         "stages": {
             "keyword_research":    "pending",
             "serp_analysis":       "pending",
-            "content_outline":     "pending",
             "content_writing":     "pending",
             "onpage_optimization": "pending",
             "internal_linking":    "pending",
             "analyst_review":      "pending",
+            "senior_editor":       "pending",
             "memory_update":       "pending",
         },
         "resume_from": None,
@@ -150,33 +162,43 @@ def read_task_history() -> list:
     return rows
 
 
+def _escape_csv_field(value: str) -> str:
+    """Escape CSV fields to prevent formula injection.
+    Prefix fields starting with =, +, -, @, tab, or CR with single quote.
+    """
+    if value and value[0] in ('=', '+', '-', '@', '\t', '\r', '\n'):
+        return f"'{value}"
+    return value
+
+
 def append_task_history(row: dict):
     MEMORY_DIR().mkdir(parents=True, exist_ok=True)
     p = MEMORY_DIR() / "task_history.csv"
     headers = ["run_id", "task", "status", "date", "ranking", "traffic"]
     write_header = not p.exists()
+
+    # Escape all string values in the row
+    escaped_row = {k: _escape_csv_field(str(v)) if isinstance(v, str) else str(v) for k, v in row.items()}
+
     with open(p, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=headers, extrasaction="ignore")
         if write_header:
             writer.writeheader()
-        writer.writerow(row)
+        writer.writerow(escaped_row)
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-def read_config() -> dict:
-    defaults = {
-        "model":    {"model": "anthropic/claude-sonnet-4-5", "max_tokens": 4096, "temperature": 0.3},
-        "pipeline": {"max_retries": 3, "retry_delay": 5, "timeout_per_stage": 120},
-    }
-    p = CONFIG_PATH()
-    if p.exists():
-        try:
-            loaded = json.loads(p.read_text())
-            defaults.update(loaded)
-        except Exception:
-            pass
-    return defaults
+def read_config(validate: bool = True) -> dict:
+    """
+    Read configuration from config.json.
+
+    Args:
+        validate: If True, validate against schema and return safe defaults on failure.
+                 If False, return raw config (may be used by migration scripts).
+    """
+    from config_validator import get_validated_config
+    return get_validated_config()
 
 
 def write_config(data: dict):

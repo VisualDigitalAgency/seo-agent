@@ -15,15 +15,64 @@ import os
 import json
 import asyncio
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from slowapi.errors import RateLimitExceeded
+from dotenv import load_dotenv
+from tools._persistent_logger import log_tool_call_persistent
 
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+# Load environment variables from .env.local with proper parsing
+env_path = Path(os.getcwd()) / ".env.local"
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path, override=True)
+
+# Validate required environment variables at startup
+def validate_env_vars():
+    """Check for required environment variables and log warnings for missing ones."""
+    required_vars = {
+        "OPENROUTER_API_KEY": "OpenRouter API key for LLM calls",
+    }
+
+    optional_but_recommended = {
+        "SERPER_API_KEY": "Serper.dev API key for search (fallback to SerpAPI)",
+        "SERPAPI_KEY": "SerpAPI key as fallback for search",
+        "DATAFORSEO_LOGIN": "DataForSEO login for keyword research",
+        "DATAFORSEO_PASSWORD": "DataForSEO password for keyword research",
+        "GSC_CREDENTIALS_PATH": "Google Service Account credentials for Search Console",
+        "GA4_CREDENTIALS_PATH": "Google Service Account credentials for GA4",
+        "GA4_PROPERTY_ID": "Google Analytics 4 property ID",
+    }
+
+    missing_required = [var for var in required_vars if not os.environ.get(var)]
+
+    for var in missing_required:
+        logger.error(f"Missing required environment variable: {var} - {required_vars[var]}")
+
+    if missing_required:
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing_required)}")
+
+    for var, description in optional_but_recommended.items():
+        if not os.environ.get(var):
+            logger.warning(f"Optional environment variable not set: {var} - {description}")
+
+# Call validation after loading env vars
+validate_env_vars()
+
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, JSONResponse
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from .rate_limit_middleware import limiter
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from middleware.request_size_limit import RequestSizeLimitMiddleware
+from jsonschema import validate, ValidationError
+from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
+from . import metrics as app_metrics
+from middleware.metrics_middleware import MetricsMiddleware
 
 from middleware.guards import PermissionGuard
+from middleware.auth import get_auth_middleware
 from tools import serper, dataforseo, gsc, ga4, filesystem
 from scheduler import SEOScheduler
 import fs_utils as fs
@@ -38,6 +87,7 @@ MAX_TOOL_LOG = 500
 
 
 def log_tool_call(tool_name: str, args: dict, result: dict, duration_ms: int, error: str = None):
+    """Log tool call to both in-memory ring buffer and persistent storage."""
     entry = {
         "id":          len(tool_call_log) + 1,
         "tool":        tool_name,
@@ -52,6 +102,15 @@ def log_tool_call(tool_name: str, args: dict, result: dict, duration_ms: int, er
     if len(tool_call_log) > MAX_TOOL_LOG:
         tool_call_log.pop(0)
 
+    # Record metrics for monitoring
+    app_metrics.record_tool_call(tool_name, duration_ms, error is not None)
+
+    # Also persist to disk (fire-and-forget, non-blocking)
+    try:
+        log_tool_call_persistent(entry)
+    except Exception as e:
+        logger.warning(f"Failed to persist tool call log: {e}")
+
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 scheduler = SEOScheduler()
@@ -61,12 +120,85 @@ scheduler = SEOScheduler()
 async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("✅ Scheduler started")
-    yield
-    scheduler.shutdown()
-    logger.info("Scheduler stopped")
+    try:
+        yield
+    finally:
+        logger.info("Lifespan ending. Shutting down...")
+        scheduler.shutdown(wait=True)  # Wait for running jobs to complete
+        logger.info("Scheduler shutdown complete.")
 
 
 app = FastAPI(title="SEO Agent Backend", version="1.0.0", lifespan=lifespan)
+
+# Apply request size limit middleware
+app.add_middleware(RequestSizeLimitMiddleware)
+
+# Attach rate limiter to app and add middleware
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(MetricsMiddleware)
+
+# Add rate limit exception handler
+from slowapi.errors import RateLimitExceeded
+
+@app.exception_handler(RateLimitExceeded)
+async def slowapi_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "rate_limit_exceeded",
+            "message": f"Rate limit exceeded. Try again in {exc.retry_after} seconds.",
+            "retry_after": exc.retry_after
+        }
+    )
+
+
+# Ideally we would attach limiter to app but since slowapi requires additional setup,
+# we'll instead implement a simple token bucket rate limiter as middleware.
+# For simplicity, we apply rate limiting only to specific high-traffic endpoints.
+
+# Apply rate limiting to public API endpoints with per-endpoint configuration
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    # Only apply rate limiting to public endpoints (not /tools/*)
+    if not request.url.path.startswith("/tools/"):
+        path = request.url.path
+
+        # Check for per-endpoint rate limits
+        matched_limit = None
+        for pattern, limits in PER_ENDPOINT_RATE_LIMITS.items():
+            # Convert path parameter patterns like "/logs/{run_id}" to match
+            pattern_parts = pattern.split('/')
+            path_parts = path.split('/')
+
+            if len(pattern_parts) == len(path_parts):
+                match = True
+                for p_part, path_part in zip(pattern_parts, path_parts):
+                    if p_part.startswith('{') and p_part.endswith('}'):
+                        # Parameter - any value matches
+                        continue
+                    elif p_part != path_part:
+                        match = False
+                        break
+
+                if match:
+                    matched_limit = limits
+                    break
+
+        # Apply the specific limit if found, else use default
+        if matched_limit:
+            # Set custom limits for this request by temporarily overriding the limiter's defaults
+            original_limits = limiter._default_limits
+            limiter._default_limits = matched_limit
+            try:
+                response = await limiter.middleware(request, call_next)
+            finally:
+                limiter._default_limits = original_limits
+            return response
+        else:
+            await limiter.middleware(request, call_next)
+    else:
+        return await call_next(request)
 
 # CORS — allow Vercel frontend + local dev
 ALLOWED_ORIGINS = [
@@ -74,15 +206,76 @@ ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
-app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS,
-                   allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",   # Vercel preview URLs
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["*"],
+    allow_credentials=False,
+)
 app.add_middleware(PermissionGuard)
+
+
+# ── Request ID Middleware ───────────────────────────────────────────────────────
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Middleware to add X-Request-ID to each request and propagate to logs."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = str(uuid.uuid4())
+        request.state.request_id = request_id
+
+        # Set request ID in logging context
+        logging.LoggerAdapter(logger, {'request_id': request_id})
+
+        response = await call_next(request)
+
+        response.headers['X-Request-ID'] = request_id
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+        return response
+
+
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(get_auth_middleware)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok", "scheduler_running": scheduler.is_running()}
+    """Health check endpoint with dependency status"""
+    # Check external service availability
+    dependencies = {
+        "openrouter": bool(os.environ.get("OPENROUTER_API_KEY")),
+        "serper": bool(os.environ.get("SERPER_API_KEY")),
+        "serpapi": bool(os.environ.get("SERPAPI_KEY")),
+        "dataforseo": bool(os.environ.get("DATAFORSEO_LOGIN") and os.environ.get("DATAFORSEO_PASSWORD")),
+        "gsc": bool(os.environ.get("GSC_CREDENTIALS_PATH")),
+        "ga4": bool(os.environ.get("GA4_CREDENTIALS_PATH") and os.environ.get("GA4_PROPERTY_ID")),
+    }
+
+    all_critical_ok = dependencies["openrouter"]
+
+    return {
+        "status": "ok" if all_critical_ok else "degraded",
+        "scheduler_running": scheduler.is_running(),
+        "dependencies": dependencies
+    }
+
+
+# ── Metrics ─────────────────────────────────────────────────────────────────────
+@app.get("/metrics")
+def metrics(format: str = "json"):
+    """
+    Application metrics endpoint.
+    Supports Prometheus format (?format=prometheus) or JSON (?format=json).
+    """
+    if format == "prometheus":
+        return PlainTextResponse(content=app_metrics.get_metrics_prometheus(), media_type="text/plain")
+    else:
+        return JSONResponse(content=app_metrics.get_metrics_json())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -90,19 +283,21 @@ def health():
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/run")
+@limiter.limit("60/minute")
 async def start_run(request: Request, background_tasks: BackgroundTasks):
-    body     = await request.json()
-    task     = body.get("task", "").strip()
-    if not task:
-        raise HTTPException(400, "task is required")
+    try:
+        body = await request.json()
+        validated = StartRunRequest(**body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
 
-    run_id   = fs.new_run_id()
+    run_id = fs.new_run_id()
     task_data = {
-        "task":     task,
-        "target":   body.get("target", ""),
-        "audience": body.get("audience", ""),
-        "domain":   body.get("domain", ""),
-        "notes":    body.get("notes", ""),
+        "task":     validated.task,
+        "target":   validated.target or "",
+        "audience": validated.audience or "",
+        "domain":   validated.domain or "",
+        "notes":    validated.notes or "",
         "run_id":   run_id,
         "created_at": datetime.utcnow().isoformat(),
     }
@@ -113,11 +308,13 @@ async def start_run(request: Request, background_tasks: BackgroundTasks):
 
 
 @app.get("/runs")
+@limiter.limit("60/minute")
 def list_runs():
     return {"runs": fs.list_all_runs()}
 
 
 @app.get("/api/run/{run_id}")
+@limiter.limit("60/minute")
 def get_run(run_id: str):
     status = fs.read_status(run_id)
     if not status:
@@ -126,12 +323,14 @@ def get_run(run_id: str):
 
 
 @app.delete("/api/run/{run_id}")
+@limiter.limit("60/minute")
 def delete_run_endpoint(run_id: str):
     fs.delete_run(run_id)
     return {"deleted": True}
 
 
 @app.post("/api/run/{run_id}/resume")
+@limiter.limit("60/minute")
 async def resume_run(run_id: str, background_tasks: BackgroundTasks):
     status = fs.read_status(run_id)
     if not status:
@@ -153,6 +352,7 @@ async def resume_run(run_id: str, background_tasks: BackgroundTasks):
 
 
 @app.get("/api/run/{run_id}/stage/{n}")
+@limiter.limit("60/minute")
 def get_stage_output(run_id: str, n: int):
     data = fs.read_stage_output(run_id, n)
     if not data:
@@ -161,12 +361,14 @@ def get_stage_output(run_id: str, n: int):
 
 
 @app.get("/logs/{run_id}")
+@limiter.limit("60/minute")
 def get_logs(run_id: str, tail: int = 200):
     return {"lines": fs.read_log_tail(run_id, tail)}
 
 
 # ── SSE streaming ─────────────────────────────────────────────────────────────
 @app.get("/api/stream/{run_id}")
+@limiter.limit("30/minute")
 async def stream_run(run_id: str):
     async def event_generator():
         import aiofiles
@@ -195,9 +397,10 @@ async def stream_run(run_id: str):
                             yield f"data: {json.dumps({'type': 'log', 'line': line})}\n\n"
                             if "[STAGE:" in line:
                                 import re
-                                m = re.search(r"\[STAGE:(\w+)\]\s+(DONE|FAILED|RUNNING)", line)
+                                m = re.search(r"\[STAGE:(\w+)\]\s+(DONE|RUNNING|FAILED)", line)
                                 if m:
-                                    yield f"data: {json.dumps({'type': 'stage_update', 'stage': m.group(1), 'status': m.group(2).lower()})}\n\n"
+                                    status_word = 'failed' if 'FAILED' in line else m.group(2).lower()
+                                    yield f"data: {json.dumps({'type': 'stage_update', 'stage': m.group(1), 'status': status_word})}\n\n"
 
             status = fs.read_status(run_id)
             if status and status.get("status") in ("done", "failed"):
@@ -215,24 +418,34 @@ async def stream_run(run_id: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/schedules")
+@limiter.limit("60/minute")
 def list_schedules():
     return {"schedules": scheduler.list_schedules()}
 
 
 @app.post("/api/schedules")
 async def create_schedule(request: Request, background_tasks: BackgroundTasks):
-    body = await request.json()
-    result = scheduler.add_schedule(body)
+    try:
+        body = await request.json()
+        validated = ScheduleConfig(**body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+
+    # Convert pydantic model back to dict for scheduler
+    schedule_data = validated.model_dump()
+    result = scheduler.add_schedule(schedule_data)
     return result
 
 
 @app.delete("/api/schedules/{schedule_id}")
+@limiter.limit("60/minute")
 def delete_schedule(schedule_id: str):
     scheduler.remove_schedule(schedule_id)
     return {"deleted": True}
 
 
 @app.post("/api/schedules/{schedule_id}/run-now")
+@limiter.limit("60/minute")
 async def run_schedule_now(schedule_id: str, background_tasks: BackgroundTasks):
     sched = scheduler.get_schedule(schedule_id)
     if not sched:
@@ -248,6 +461,7 @@ async def run_schedule_now(schedule_id: str, background_tasks: BackgroundTasks):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/memory")
+@limiter.limit("60/minute")
 def get_memory(q: str = ""):
     learnings = fs.read_learnings()
     history   = fs.read_task_history()
@@ -260,9 +474,15 @@ def get_memory(q: str = ""):
 
 
 @app.post("/api/memory")
+@limiter.limit("60/minute")
 async def post_memory(request: Request):
-    body = await request.json()
-    t, data = body.get("type"), body.get("data", {})
+    try:
+        body = await request.json()
+        validated = MemoryEntryRequest(**body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+
+    t, data = validated.type, validated.data
     if t == "learning":
         learnings = fs.read_learnings()
         learnings.append({**data, "date": datetime.utcnow().strftime("%Y-%m-%d")})
@@ -277,6 +497,7 @@ async def post_memory(request: Request):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/config")
+@limiter.limit("60/minute")
 def get_config():
     cfg = fs.read_config()
     env = fs.read_env_keys()
@@ -284,14 +505,22 @@ def get_config():
 
 
 @app.post("/config")
+@limiter.limit("60/minute")
 async def post_config(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+        validated = ConfigUpdateRequest(**body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+
     existing = fs.read_config()
-    if "model"    in body: existing["model"]    = body["model"]
-    if "pipeline" in body: existing["pipeline"] = body["pipeline"]
+    if validated.model:
+        existing["model"] = validated.model
+    if validated.pipeline:
+        existing["pipeline"] = validated.pipeline
     fs.write_config(existing)
-    if "env" in body:
-        fs.write_env_keys({k: v for k, v in body["env"].items() if v})
+    if validated.env:
+        fs.write_env_keys({k: v for k, v in validated.env.items() if v})
     return {"saved": True}
 
 
@@ -300,14 +529,35 @@ async def post_config(request: Request):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/tools")
+@limiter.limit("60/minute")
 def get_tools():
     from server_tools import TOOL_DEFINITIONS
     return {"tools": TOOL_DEFINITIONS}
 
 
 @app.get("/tool-calls")
-def get_tool_calls(limit: int = 100):
-    return {"calls": tool_call_log[-limit:], "total": len(tool_call_log)}
+@limiter.limit("60/minute")
+def get_tool_calls(limit: int = 100, persistent: bool = False, days: int = 1):
+    """
+    Get recent tool calls.
+
+    Args:
+        limit: Maximum number of entries to return
+        persistent: If True, read from persistent logs (historical data)
+        days: Number of days to look back when persistent=True
+    """
+    if persistent:
+        # Read from persistent logs
+        try:
+            from tools._persistent_logger import get_persistent_tool_calls
+            calls = get_persistent_tool_calls(days=days, limit=limit)
+            return {"calls": calls, "total": len(calls), "source": "persistent"}
+        except Exception as e:
+            logger.error(f"Failed to read persistent tool logs: {e}")
+            # Fall back to in-memory
+            return {"calls": tool_call_log[-limit:], "total": len(tool_call_log), "source": "memory_fallback"}
+
+    return {"calls": tool_call_log[-limit:], "total": len(tool_call_log), "source": "memory"}
 
 
 async def _timed_tool_call(name: str, coro_fn, args: dict):
@@ -428,23 +678,33 @@ async def t_append_log(request: Request):
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _run_pipeline(run_id: str, task_data: dict, resume: bool = False):
-    import sys, importlib
+    """
+    Run the pipeline in a thread pool executor so the synchronous pipeline code
+    (and all the blocking requests/LLM calls inside it) doesn't block the
+    FastAPI event loop — keeping SSE streams, status polls, and other requests
+    responsive while the pipeline runs.
+    """
+    import sys, asyncio
     sys.path.insert(0, str(Path(__file__).parent))
-
     from pipeline import Pipeline
-    pipeline = Pipeline(
-        run_id   = run_id,
-        task     = task_data.get("task", ""),
-        target   = task_data.get("target", ""),
-        audience = task_data.get("audience", ""),
-        domain   = task_data.get("domain", ""),
-        notes    = task_data.get("notes", ""),
-    )
-    try:
-        if resume:
-            pipeline.resume()
-        else:
-            pipeline.run()
-    except Exception as e:
-        logger.error(f"Pipeline {run_id} error: {e}")
-        pipeline.update_status("failed", error=str(e))
+
+    def _run_sync():
+        pipeline = Pipeline(
+            run_id   = run_id,
+            task     = task_data.get("task", ""),
+            target   = task_data.get("target", ""),
+            audience = task_data.get("audience", ""),
+            domain   = task_data.get("domain", ""),
+            notes    = task_data.get("notes", ""),
+        )
+        try:
+            if resume:
+                pipeline.resume()
+            else:
+                pipeline.run()
+        except Exception as e:
+            logger.error(f"Pipeline {run_id} error: {e}")
+            pipeline.update_status("failed", error=str(e))
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _run_sync)
